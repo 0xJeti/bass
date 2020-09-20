@@ -6,14 +6,13 @@ import os
 from colorama import Fore, Style
 from sys import stderr
 
-
 def banner():
     # banner
     print(''' _
 | |__   __ _ ___ ___
-| '_ \ / _` / __/ __|
-| |_) | (_| \__ \__ \\
-|_.__/ \__,_|___/___/''')
+| '_ \\ / _` / __/ __|
+| |_) | (_| \\__ \\__ \\
+|_.__/ \\__,_|___/___/''')
 
     # Author & contributor
     print("------------------------------------------")
@@ -23,9 +22,20 @@ def banner():
 
 
 # get providers involved, create a list of files to join
-def get_providers(domain):
-    # list of filtered public resolvers is a provider by default
-    providers = {'public'}
+def get_providers(domain, outfile):
+    providers = {}
+    if resolvers_filename != None:
+        try:
+            with open(resolvers_filename) as resfile:
+                   for line in resfile:
+                       outfile.write(line)
+            providers = {'local'}
+        except IOError:
+            print(f"Failed to open {resolvers_filename}", file=stderr)
+            return {}
+    else:
+        # list of filtered public resolvers is a provider by default
+        providers = {'public'}
     try:
         answers = dns.resolver.query(domain, 'NS')
     except dns.exception.DNSException:
@@ -41,8 +51,8 @@ def get_providers(domain):
         if "awsdns" in nsdomain:
             awsdns_answers = dns.resolver.query(nsdomain, 'A')
             awsdns_ip = awsdns_answers[0].address
-            with open(output_filename, "a+") as outfile:
-                outfile.write(awsdns_ip + "\n")
+            outfile.write(awsdns_ip + "\n")
+            providers.add('awsdns')
         else:        
             # extensions matter on Win
             providers.add(ext.domain)
@@ -67,11 +77,11 @@ def get_nameservers(provider_name):
 def output_nameservers_to_file(providers):
     nameservers = set()
     for dns_provider in providers:
+        if dns_provider == 'local' or dns_provider == 'awsdns':
+            continue
         nameservers = nameservers|get_nameservers(dns_provider)
-    with open(output_filename, "a+") as outfile:
         for nameserver in nameservers:
             outfile.write(f"{nameserver}\n")
-    return len(nameservers)
 
 
 if __name__ == "__main__":
@@ -86,13 +96,36 @@ if __name__ == "__main__":
         "-o", "--output", required=True,
         help="output file of your final resolver list"
     )
+    ap.add_argument(
+        "-r", "--resolvers", required=False,
+        help="local resolver list"
+    )
     args = vars(ap.parse_args())
 
-    domain_arg = args["domain"]
-    output_arg = args["output"]
-    output_filename = output_arg
-    providers = get_providers(domain_arg)
+    domain_name = args["domain"]
+    output_filename = args["output"]
+    resolvers_arg = args["resolvers"]
+
+    resolvers_filename = resolvers_arg
+
+    try:
+        outfile = open(output_filename, "w")
+    except IOError:
+        print(f"Cannot open {Fore.RED}{output_filename}{Fore.GREEN} for writing.", file=stderr)
+        quit()
+
+    providers = get_providers(domain_name, outfile)
+
     print(f"{Fore.GREEN}DNS Providers : {Fore.RED}{str(providers)}{Fore.GREEN}")
-    num_of_resolvers = output_nameservers_to_file(providers)
-    print(f"{Fore.GREEN}Final List of Resolver located at {Fore.RED}{output_arg}")
+    output_nameservers_to_file(providers)
+
+    outfile.close()
+    
+    with open(output_filename) as f:
+        for num_of_resolvers, l in enumerate(f):
+            pass
+    
+
+    print(f"{Fore.GREEN}Final List of Resolver located at {Fore.RED}{output_filename}")
     print(f"{Fore.GREEN}Total usable resolvers : {Fore.RED}{str(num_of_resolvers)}{Style.RESET_ALL}")
+
